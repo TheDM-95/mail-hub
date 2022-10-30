@@ -1,0 +1,88 @@
+version: '3.5'
+
+networks:
+  mail-hub:
+
+services:
+  mail-api:
+     image: localhost:5000/mail-api:latest
+     restart: always
+     command: mail-api serve api
+     environment:
+       - ADDRESS=mail-api:1522
+       - KAFKABROKERS=172.17.0.1:9092
+     env_file:
+       - ./common.env
+     ports:
+       - 1522:9090
+     hostname: mail-api
+     container_name: mail-api
+     networks:
+       - mail-hub
+
+  send-mail-consumer:
+     image: localhost:5000/send-mail-consumer:latest
+     restart: always
+     security_opt:
+       - "seccomp:unconfined"
+     cap_add:
+       - SYS_PTRACE
+     command: send-mail-consumer serve consumer
+     environment:
+       - KAFKABROKERS=172.17.0.1:9092
+       - MAILSERVICE=sendgrid
+       - SENDGRIDAPIKEY=sendgrid_api_key
+       - MAILGUNDOMAIN=mailgun_domain
+       - MAILGUNAPIKEY=mailgun_api_key
+     env_file:
+       - ./common.env
+     depends_on:
+       - "mail-hub-kafka"
+     hostname: send-mail-consumer
+     container_name: send-mail-consumer
+     networks:
+       - mail-hub
+
+  mail-hub-nginx:
+    image: nginx:latest
+    restart: always
+    volumes:
+      - ./nginx:/etc/nginx
+    ports:
+      - 80:80
+      - 443:443
+    expose:
+      - '80'
+      - '443'
+    hostname: mail-hub-nginx
+    container_name: mail-hub-nginx
+    networks:
+      - mail-hub
+
+  mail-hub-zookeeper:
+    image: wurstmeister/zookeeper
+    restart: always
+    ports:
+      - "2181:2181"
+    hostname: mail-hub-zookeeper
+    container_name: mail-hub-zookeeper
+    networks:
+      - mail-hub
+
+  mail-hub-kafka:
+    image: wurstmeister/kafka
+    restart: always
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: 172.17.0.1
+      KAFKA_ZOOKEEPER_CONNECT: mail-hub-zookeeper:2181
+      KAFKA_MESSAGE_MAX_BYTES: 2000000
+    depends_on:
+      - "mail-hub-zookeeper"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    hostname: mail-hub-kafka
+    container_name: mail-hub-kafka
+    networks:
+      - mail-hub
